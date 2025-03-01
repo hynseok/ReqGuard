@@ -262,9 +262,19 @@ impl IptablesGuard {
 
     pub fn cleanup(&self) -> Result<(), String> {
         if self.kube_proxy {
+            let ips_to_unban = {
+                let banned_ips = self.banned_ips.lock().unwrap();
+                banned_ips.keys().cloned().collect::<Vec<String>>()
+            };
+
+            for ip in ips_to_unban {
+                if let Err(e) = self.unban_ip(&ip) {
+                    eprintln!("[ReqGuard] Failed to unban IP {} during cleanup: {}", ip, e);
+                }
+            }
             return Ok(());
         }
-        
+
         let _ = Command::new("iptables")
             .args(&["-D", "INPUT", "-j", &self.chain_name])
             .output();
