@@ -4,9 +4,9 @@ max_duplicate_count = 10
 max_buffer_size = 10
 banned_duration_minutes = 10
 
-dports = []
-
 log_path = 'example.log'
 log_regex = '(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[\+\-]\d{2}:\d{2}) stdout F (?P<ip>\d+\.\d+\.\d+\.\d+) .*? "(?P<method>GET|POST|PUT|DELETE|HEAD) (?P<path>/[^\s]+) HTTP/[\d\.]+"'
 
-kube_proxy = true
+dports = []
+
+kube_proxy = false
