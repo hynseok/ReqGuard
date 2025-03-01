@@ -18,6 +18,9 @@ pub struct Config {
     #[serde(default = "default_banned_duration_minutes")]
     pub banned_duration_minutes: i64,
 
+    #[serde(default = "default_dports")]
+    pub dports: Vec<u16>,
+
     #[serde(default = "default_log_path")]
     pub log_path: String,
 
@@ -35,6 +38,10 @@ fn default_max_buffer_size() -> usize {
 
 fn default_banned_duration_minutes() -> i64 {
     10
+}
+
+fn default_dports() -> Vec<u16> {
+    vec![]
 }
 
 fn default_log_path() -> String {
@@ -86,6 +93,7 @@ impl Config {
             max_duplicate_count: default_max_duplicate_count(),
             max_buffer_size: default_max_buffer_size(),
             banned_duration_minutes: default_banned_duration_minutes(),
+            dports: default_dports(),
             log_path: default_log_path(),
             log_regex: default_log_regex(),
         }

@@ -3,16 +3,25 @@ use std::collections::HashMap;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
+use crate::config::CONFIG;
+
 pub struct IptablesGuard {
     chain_name: String,
     banned_ips: Arc<Mutex<HashMap<String, DateTime<Utc>>>>,
+    dports: Vec<u16>,
 }
 
 impl IptablesGuard {
     pub fn new(chain_name: &str) -> Result<Self, String> {
+        let dports = {
+            let config = CONFIG.lock().unwrap();
+            config.dports.clone()
+        };
+
         let guard = IptablesGuard {
             chain_name: chain_name.to_string(),
             banned_ips: Arc::new(Mutex::new(HashMap::new())),
+            dports,
         };
 
         guard.initialize_chain()?;
@@ -82,22 +91,59 @@ impl IptablesGuard {
             }
         }
 
-        match Command::new("iptables")
-            .args(&["-A", &self.chain_name, "-s", ip, "-j", "DROP"])
-            .output()
-        {
-            Ok(output) => {
-                if !output.status.success() {
-                    return Err(format!("Failed to ban IP {}", ip));
+        if !self.dports.is_empty() {
+            for &port in &self.dports {
+                match Command::new("iptables")
+                    .args(&[
+                        "-A",
+                        &self.chain_name,
+                        "-s",
+                        ip,
+                        "-p",
+                        "tcp",
+                        "--dport",
+                        &port.to_string(),
+                        "-j",
+                        "DROP",
+                    ])
+                    .output()
+                {
+                    Ok(output) => {
+                        if !output.status.success() {
+                            let error = String::from_utf8_lossy(&output.stderr);
+                            return Err(format!(
+                                "Failed to ban IP {} on port {}: {}",
+                                ip, port, error
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        return Err(format!(
+                            "[ReqGuard] Failed to execute iptables command: {}",
+                            e
+                        ))
+                    }
+                };
+            }
+        } else {
+            match Command::new("iptables")
+                .args(&["-A", &self.chain_name, "-s", ip, "-j", "DROP"])
+                .output()
+            {
+                Ok(output) => {
+                    if !output.status.success() {
+                        let error = String::from_utf8_lossy(&output.stderr);
+                        return Err(format!("Failed to ban IP {}: {}", ip, error));
+                    }
                 }
-            }
-            Err(e) => {
-                return Err(format!(
-                    "[ReqGuard] Failed to execute iptables command: {}",
-                    e
-                ))
-            }
-        };
+                Err(e) => {
+                    return Err(format!(
+                        "[ReqGuard] Failed to execute iptables command: {}",
+                        e
+                    ))
+                }
+            };
+        }
 
         {
             let mut banned_ips = self.banned_ips.lock().unwrap();
@@ -116,22 +162,54 @@ impl IptablesGuard {
             banned_ips.remove(ip);
         }
 
-        match Command::new("iptables")
-            .args(&["-D", &self.chain_name, "-s", ip, "-j", "DROP"])
-            .output()
-        {
-            Ok(output) => {
-                if !output.status.success() {
-                    return Err(format!("Failed to unban IP {}", ip));
+        if !self.dports.is_empty() {
+            for &port in &self.dports {
+                match Command::new("iptables")
+                    .args(&[
+                        "-D",
+                        &self.chain_name,
+                        "-s",
+                        ip,
+                        "-p",
+                        "tcp",
+                        "--dport",
+                        &port.to_string(),
+                        "-j",
+                        "DROP",
+                    ])
+                    .output()
+                {
+                    Ok(output) => {
+                        if !output.status.success() {
+                            return Err(format!("Failed to unban IP {} on port {}", ip, port));
+                        }
+                    }
+                    Err(e) => {
+                        return Err(format!(
+                            "[ReqGuard] Failed to execute iptables command: {}",
+                            e
+                        ))
+                    }
+                };
+            }
+        } else {
+            match Command::new("iptables")
+                .args(&["-D", &self.chain_name, "-s", ip, "-j", "DROP"])
+                .output()
+            {
+                Ok(output) => {
+                    if !output.status.success() {
+                        return Err(format!("Failed to unban IP {}", ip));
+                    }
                 }
-            }
-            Err(e) => {
-                return Err(format!(
-                    "[ReqGuard] Failed to execute iptables command: {}",
-                    e
-                ))
-            }
-        };
+                Err(e) => {
+                    return Err(format!(
+                        "[ReqGuard] Failed to execute iptables command: {}",
+                        e
+                    ))
+                }
+            };
+        }
 
         Ok(())
     }
@@ -207,6 +285,7 @@ impl IptablesGuard {
         IptablesGuard {
             chain_name: "MOCK".to_string(),
             banned_ips: Arc::new(Mutex::new(HashMap::new())),
+            dports: vec![],
         }
     }
 }
