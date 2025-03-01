@@ -1,8 +1,8 @@
+use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::fs;
 use std::io;
 use std::path::Path;
-use once_cell::sync::Lazy;
 use std::sync::Mutex;
 
 pub static CONFIG: Lazy<Mutex<Config>> = Lazy::new(|| Mutex::new(Config::load(None)));
@@ -26,6 +26,9 @@ pub struct Config {
 
     #[serde(default = "default_log_regex")]
     pub log_regex: String,
+
+    #[serde(default = "default_kube_proxy")]
+    pub kube_proxy: bool,
 }
 
 fn default_max_duplicate_count() -> usize {
@@ -50,6 +53,10 @@ fn default_log_path() -> String {
 
 fn default_log_regex() -> String {
     r#"(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[\+\-]\d{2}:\d{2}) stdout F (?P<ip>\d+\.\d+\.\d+\.\d+) .* \[.*?\] "(?P<method>GET|POST|PUT|DELETE|HEAD) (?P<path>/[^\s]+) HTTP/[\d\.]+""#.to_string()
+}
+
+fn default_kube_proxy() -> bool {
+    false
 }
 
 impl Config {
@@ -96,6 +103,7 @@ impl Config {
             dports: default_dports(),
             log_path: default_log_path(),
             log_regex: default_log_regex(),
+            kube_proxy: default_kube_proxy(),
         }
     }
 }

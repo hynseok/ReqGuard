@@ -9,19 +9,21 @@ pub struct IptablesGuard {
     chain_name: String,
     banned_ips: Arc<Mutex<HashMap<String, DateTime<Utc>>>>,
     dports: Vec<u16>,
+    kube_proxy: bool,
 }
 
 impl IptablesGuard {
     pub fn new(chain_name: &str) -> Result<Self, String> {
-        let dports = {
+        let (dports, kube_proxy) = {
             let config = CONFIG.lock().unwrap();
-            config.dports.clone()
+            (config.dports.clone(), config.kube_proxy)
         };
 
         let guard = IptablesGuard {
             chain_name: chain_name.to_string(),
             banned_ips: Arc::new(Mutex::new(HashMap::new())),
             dports,
+            kube_proxy,
         };
 
         guard.initialize_chain()?;
@@ -29,7 +31,19 @@ impl IptablesGuard {
         Ok(guard)
     }
 
+    fn get_chain_name(&self) -> &str {
+        if self.kube_proxy {
+            "KUBE-PROXY-FIREWALL"
+        } else {
+            &self.chain_name
+        }
+    }
+
     fn initialize_chain(&self) -> Result<(), String> {
+        if self.kube_proxy {
+            return Ok(());
+        }
+
         let _ = Command::new("iptables")
             .args(&["-D", "INPUT", "-j", &self.chain_name])
             .output();
@@ -91,12 +105,14 @@ impl IptablesGuard {
             }
         }
 
+        let chain_name = self.get_chain_name();
+
         if !self.dports.is_empty() {
             for &port in &self.dports {
                 match Command::new("iptables")
                     .args(&[
                         "-A",
-                        &self.chain_name,
+                        chain_name,
                         "-s",
                         ip,
                         "-p",
@@ -127,7 +143,7 @@ impl IptablesGuard {
             }
         } else {
             match Command::new("iptables")
-                .args(&["-A", &self.chain_name, "-s", ip, "-j", "DROP"])
+                .args(&["-A", chain_name, "-s", ip, "-j", "DROP"])
                 .output()
             {
                 Ok(output) => {
@@ -162,12 +178,14 @@ impl IptablesGuard {
             banned_ips.remove(ip);
         }
 
+        let chain_name = self.get_chain_name();
+
         if !self.dports.is_empty() {
             for &port in &self.dports {
                 match Command::new("iptables")
                     .args(&[
                         "-D",
-                        &self.chain_name,
+                        chain_name,
                         "-s",
                         ip,
                         "-p",
@@ -194,7 +212,7 @@ impl IptablesGuard {
             }
         } else {
             match Command::new("iptables")
-                .args(&["-D", &self.chain_name, "-s", ip, "-j", "DROP"])
+                .args(&["-D", chain_name, "-s", ip, "-j", "DROP"])
                 .output()
             {
                 Ok(output) => {
@@ -243,6 +261,10 @@ impl IptablesGuard {
     }
 
     pub fn cleanup(&self) -> Result<(), String> {
+        if self.kube_proxy {
+            return Ok(());
+        }
+        
         let _ = Command::new("iptables")
             .args(&["-D", "INPUT", "-j", &self.chain_name])
             .output();
@@ -286,6 +308,7 @@ impl IptablesGuard {
             chain_name: "MOCK".to_string(),
             banned_ips: Arc::new(Mutex::new(HashMap::new())),
             dports: vec![],
+            kube_proxy: false,
         }
     }
 }
