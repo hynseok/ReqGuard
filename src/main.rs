@@ -3,7 +3,7 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, Seek, SeekFrom},
     path::Path,
-    sync::mpsc::channel,
+    sync::mpsc::{channel, RecvTimeoutError},
     time::{Duration as StdDuration, Instant},
 };
 
@@ -57,6 +57,15 @@ fn main() {
         }
     };
 
+    // signal handler for graceful shutdown
+    let (stx, srx) = channel();
+    ctrlc::set_handler(move || {
+        println!("[ReqGuard] Shutting down");
+        let _ = stx.send(());
+    })
+    .expect("Error setting Ctrl-C handler");
+
+    // file system watcher (notifier based on OS)
     let (tx, rx) = channel();
     let mut watcher = notify::recommended_watcher(tx).expect("[ReqGuard] Failed to create watcher");
     watcher
@@ -64,7 +73,11 @@ fn main() {
         .expect("[ReqGuard] Failed to watch log file");
 
     loop {
-        match rx.recv() {
+        if let Ok(_) = srx.try_recv() {
+            break;
+        }
+
+        match rx.recv_timeout(StdDuration::from_secs(1)) {
             Ok(_) => {
                 let mut file = match File::open(log_path.clone()) {
                     Ok(file) => file,
@@ -182,7 +195,13 @@ fn main() {
                     buffer = Vec::with_capacity(1024);
                 }
             }
-            Err(e) => eprintln!("[ReqGuard] Failed to receive watch event: {}", e),
+            Err(RecvTimeoutError::Timeout) => {
+                continue;
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                eprintln!("[ReqGuard] Watcher channel disconnected");
+                break;
+            }
         }
     }
 }
