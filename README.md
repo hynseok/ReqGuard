@@ -23,7 +23,7 @@ cargo build --release
 #### 3. Configuration
 Edit the configuration file `config.toml`
 
-* **max_buffer_size**: Maximum number of log entries window
+* **max_buffer_size**: Maximum number of log entries that can be stored in window.
 * **max_duplicate_count**: Threshold for duplicate requests before banning an IP.
 * **banned_duration_minutes**: How long (in minutes) an IP remains banned.
 * **log_path**: Path to the log file to monitor.
@@ -39,7 +39,7 @@ sudo ./target/release/req_guard
 
 ## Troubleshooting
 #### 1. Watcher issues:
-Log watcher uses file system notifier (inotify), it might be exceeding inotify limits. Increase them using:
+Log watcher uses file system notifier(inotify), it might be exceeding inotify limits. Increase them using:
 ```bash
 sysctl -w fs.inotify.max_user_watches=524288
 sysctl -w fs.inotify.max_user_instances=524288
