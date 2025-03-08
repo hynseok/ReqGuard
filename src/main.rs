@@ -90,6 +90,10 @@ async fn main() {
                     break;
                 }
 
+                // Debounce file events
+                time::sleep(StdDuration::from_millis(200)).await;
+                while let Ok(_) = notify_rx.try_recv() {}
+                
                 process_log(
                     &log_path,
                     &guard,
