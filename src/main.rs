@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::Path,
+    sync::Arc,
     time::Duration as StdDuration,
 };
 
@@ -40,7 +41,7 @@ async fn main() {
     let cleanup_interval = StdDuration::from_secs(60);
 
     // Initialize the iptables guard
-    let guard = match IptablesGuard::new("REQGUARD") {
+    let guard = Arc::new(match IptablesGuard::new("REQGUARD") {
         Ok(g) => {
             println!("[ReqGuard] Successfully initialized iptables guard");
             g
@@ -51,7 +52,7 @@ async fn main() {
             eprintln!("[ReqGuard] Continuing without IP banning capability");
             IptablesGuard::new_mock()
         }
-    };
+    });
 
     // Channel to receive file events
     let (notify_tx, mut notify_rx) = mpsc::channel(100);
@@ -113,7 +114,7 @@ async fn main() {
 // Asynchronous function to process log file changes
 async fn process_log(
     log_path: &str,
-    guard: &IptablesGuard,
+    guard: &Arc<IptablesGuard>,
     log_buf: &Mutex<VecDeque<LogEntry>>,
     request_counts: &Mutex<HashMap<(String, String), usize>>,
     last_position: &Mutex<u64>,
@@ -174,14 +175,17 @@ async fn process_log(
         let now = Utc::now();
 
         if last_cleanup.elapsed() >= cleanup_interval {
-            match guard.cleanup_expired_bans() {
+            let guard_clone = Arc::clone(guard);
+            tokio::task::spawn_blocking(move || match guard_clone.cleanup_expired_bans() {
                 Ok(expired_ips) => {
                     for ip in expired_ips {
                         println!("[ReqGuard] {} is no longer banned", ip);
                     }
                 }
                 Err(e) => eprintln!("[ReqGuard] Failed to cleanup expired bans: {}", e),
-            }
+            })
+            .await
+            .ok();
             *last_cleanup = time::Instant::now();
         }
 
@@ -209,16 +213,20 @@ async fn process_log(
 
             if *count >= max_duplicate_count {
                 let expiry = now + banned_duration;
-                match guard.ban_ip(&entry.ip, expiry) {
+                let ip_clone = entry.ip.clone();
+                let guard_clone = Arc::clone(guard);
+                tokio::task::spawn_blocking(move || match guard_clone.ban_ip(&ip_clone, expiry) {
                     Ok(_) => println!(
                         "[ReqGuard] {} banned for {} minutes",
-                        entry.ip, banned_duration_minutes
+                        ip_clone, banned_duration_minutes
                     ),
                     Err(e) => {
-                        eprintln!("[ReqGuard] Failed to ban IP {}", entry.ip);
+                        eprintln!("[ReqGuard] Failed to ban IP {}", ip_clone);
                         eprintln!("{}", e);
                     }
-                }
+                })
+                .await
+                .ok();
                 counts.remove(&key);
             }
         } else {
